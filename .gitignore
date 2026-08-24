@@ -1,0 +1,9 @@
+.gradle/
+.idea/
+local.properties
+**/build/
+cloudflare/node_modules/
+cloudflare/.wrangler/
+*.jks
+*.keystore
+.env

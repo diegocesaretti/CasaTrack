@@ -5,6 +5,10 @@ on:
     paths:
       - 'android/**'
       - '.github/workflows/android-debug.yml'
+  pull_request:
+    paths:
+      - 'android/**'
+      - '.github/workflows/android-debug.yml'
 
 jobs:
   build:

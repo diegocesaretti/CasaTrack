@@ -1,6 +1,7 @@
 package com.casatrack.app
 
 import android.content.Context
+import android.os.Build
 
 class AppPrefs(context: Context) {
     private val p = context.getSharedPreferences("casatrack", Context.MODE_PRIVATE)
@@ -14,9 +15,16 @@ class AppPrefs(context: Context) {
     var personName: String
         get() = p.getString("person_name", "") ?: ""
         set(v) = p.edit().putString("person_name", v.trim()).apply()
+    var deviceLabel: String
+        get() = p.getString("device_label", "")?.takeIf { it.isNotBlank() }
+            ?: "${Build.MANUFACTURER} ${Build.MODEL}".trim()
+        set(v) = p.edit().putString("device_label", v.trim()).apply()
     var deviceToken: String
         get() = p.getString("device_token", "") ?: ""
         set(v) = p.edit().putString("device_token", v.trim()).apply()
+    var isAdmin: Boolean
+        get() = p.getBoolean("is_admin", false)
+        set(v) = p.edit().putBoolean("is_admin", v).apply()
 
     var anchorSsid: String
         get() = p.getString("anchor_ssid", "") ?: ""
@@ -60,6 +68,28 @@ class AppPrefs(context: Context) {
 
     fun configured(): Boolean = apiUrl.startsWith("https://") && deviceId.isNotBlank() && deviceToken.isNotBlank()
     fun hasAnchor(): Boolean = anchorSsid.isNotBlank() && anchorLat.isFinite() && anchorLon.isFinite()
+
+    fun saveEnrollment(apiUrl: String, deviceId: String, personName: String, label: String, token: String) {
+        p.edit()
+            .putString("api_url", apiUrl.trim().trimEnd('/'))
+            .putString("device_id", deviceId.trim())
+            .putString("person_name", personName.trim())
+            .putString("device_label", label.trim())
+            .putString("device_token", token.trim())
+            .putBoolean("is_admin", false)
+            .apply()
+    }
+
+    fun clearRegistration() {
+        p.edit()
+            .remove("device_id")
+            .remove("device_token")
+            .remove("person_name")
+            .remove("device_label")
+            .remove("is_admin")
+            .putBoolean("tracking_enabled", false)
+            .apply()
+    }
 
     fun bssidMatches(candidate: String?): Boolean {
         val configured = anchorBssids.split(',').map { it.trim().lowercase() }.filter { it.isNotBlank() }

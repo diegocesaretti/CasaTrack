@@ -7,3 +7,5 @@ cloudflare/.wrangler/
 *.jks
 *.keystore
 .env
+__pycache__/
+*.py[cod]

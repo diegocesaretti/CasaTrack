@@ -1,0 +1,14 @@
+name = "casatrack-api"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+[vars]
+HISTORY_RETENTION_DAYS = "30"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "casatrack"
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+
+[triggers]
+crons = ["17 3 * * *"]

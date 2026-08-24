@@ -1,0 +1,7 @@
+{
+  "config": {
+    "step": {"user": {"title": "Conectar CasaTrack", "description": "Ingresá la URL pública del Worker y el token de solo lectura para Home Assistant.", "data": {"url": "URL del Worker", "token": "Token de lectura HA", "scan_interval": "Intervalo de consulta (segundos)"}}},
+    "error": {"cannot_connect": "No se pudo conectar", "invalid_auth": "Autenticación inválida"},
+    "abort": {"already_configured": "Este endpoint CasaTrack ya está configurado"}
+  }
+}

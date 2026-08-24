@@ -1,6 +1,8 @@
 # Home Assistant custom integration
 
-Copy:
+Recommended installation: add `https://github.com/diegocesaretti/CasaTrack` to HACS as a custom **Integration** repository and install CasaTrack from there.
+
+For a manual installation, copy:
 
 ```text
 custom_components/casatrack/

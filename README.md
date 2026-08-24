@@ -67,6 +67,12 @@ The included `custom_components/casatrack` is a config-entry integration using t
 
 HA only makes outbound HTTPS requests to Cloudflare.
 
+### Install with HACS
+
+1. In HACS, open **Custom repositories**.
+2. Add `https://github.com/diegocesaretti/CasaTrack` with category **Integration**.
+3. Install **CasaTrack**, restart Home Assistant, then add it from **Settings → Devices & services**.
+
 ## Quick start
 
 1. Deploy the Cloudflare folder and create its D1 database (see `cloudflare/README.md`).
@@ -75,7 +81,7 @@ HA only makes outbound HTTPS requests to Cloudflare.
 4. Grant location, background location, activity recognition, and notification permissions.
 5. While at home, tap **Capture current Wi-Fi + anchor location**.
 6. Start tracking.
-7. Copy `home-assistant/custom_components/casatrack` into HA `/config/custom_components/`, restart HA, and add **CasaTrack** from Integrations.
+7. Install CasaTrack through HACS, restart Home Assistant, and add **CasaTrack** from Integrations.
 
 ## Security notes
 

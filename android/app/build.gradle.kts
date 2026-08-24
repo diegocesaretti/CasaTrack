@@ -37,6 +37,6 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     // QR scanner. Pin ZXing core 3.3.0 so CasaTrack keeps Android 6 / API 23 support.
-    implementation("com.journeyapps:zxing-android-embedded:4.3.0") { transitive = false }
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0") { isTransitive = false }
     implementation("com.google.zxing:core:3.3.0")
 }

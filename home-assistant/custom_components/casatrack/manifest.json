@@ -1,0 +1,10 @@
+{
+  "domain": "casatrack",
+  "name": "CasaTrack",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/diegocesaretti/CasaTrack",
+  "iot_class": "cloud_polling",
+  "requirements": [],
+  "version": "0.1.0"
+}

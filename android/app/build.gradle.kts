@@ -11,8 +11,8 @@ android {
         applicationId = "com.casatrack.app"
         minSdk = 23
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
 
     buildFeatures {
@@ -35,4 +35,8 @@ dependencies {
     implementation("androidx.work:work-runtime-ktx:2.10.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // QR scanner. Pin ZXing core 3.3.0 so CasaTrack keeps Android 6 / API 23 support.
+    implementation("com.journeyapps:zxing-android-embedded:4.3.0") { transitive = false }
+    implementation("com.google.zxing:core:3.3.0")
 }

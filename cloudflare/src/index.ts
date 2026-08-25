@@ -217,9 +217,10 @@ async function createInvite(req: Request, env: Env): Promise<Response> {
 async function loadInvite(env: Env, inviteToken: string) {
   const hash = await sha256Hex(inviteToken.trim());
   return env.DB.prepare(`
-    SELECT invite_id, created_by_device_id, expires_at_ms
+    SELECT invite_id, created_by_device_id, expires_at_ms, used, used_by_device_id, used_purpose
     FROM enrollment_invites
-    WHERE token_sha256=? AND used=0 AND expires_at_ms>?
+    WHERE token_sha256=? AND expires_at_ms>?
+      AND (used=0 OR used_purpose='transfer')
   `).bind(hash, Date.now()).first<any>();
 }
 
@@ -240,6 +241,7 @@ async function inviteChoices(env: Env, inviteToken: string): Promise<Response> {
     action: "inspect",
     created_by_device_id: invite.created_by_device_id,
     expires_at_ms: invite.expires_at_ms,
+    locked_target_device_id: invite.used === 1 && invite.used_purpose === "transfer" ? invite.used_by_device_id : null,
     devices: devices.results ?? [],
   });
 }
@@ -248,6 +250,9 @@ async function transferExisting(env: Env, inviteToken: string, targetId: string,
   if (!validId(targetId)) return json({ error: "invalid_target_device" }, 400);
   const invite = await loadInvite(env, inviteToken);
   if (!invite) return json({ error: "invite_invalid_or_expired" }, 401);
+  if (invite.used === 1 && (invite.used_purpose !== "transfer" || invite.used_by_device_id !== targetId)) {
+    return json({ error: "invite_already_used" }, 409);
+  }
 
   const target = await env.DB.prepare(`
     SELECT device_id, person_name, label, is_admin FROM devices WHERE device_id=? AND enabled=1
@@ -260,20 +265,22 @@ async function transferExisting(env: Env, inviteToken: string, targetId: string,
   const newLabel = typeof requestedLabel === "string" && requestedLabel.trim()
     ? requestedLabel.trim().slice(0, 120)
     : null;
+  const now = Date.now();
 
   await env.DB.batch([
     env.DB.prepare(`
       UPDATE enrollment_invites
-      SET used=1, used_by_device_id=?, used_at=CURRENT_TIMESTAMP, used_nonce=?
-      WHERE invite_id=? AND used=0 AND expires_at_ms>?
-    `).bind(targetId, nonce, invite.invite_id, Date.now()),
+      SET used=1, used_by_device_id=?, used_at=CURRENT_TIMESTAMP, used_nonce=?, used_purpose='transfer'
+      WHERE invite_id=? AND expires_at_ms>?
+        AND (used=0 OR (used=1 AND used_purpose='transfer' AND used_by_device_id=?))
+    `).bind(targetId, nonce, invite.invite_id, now, targetId),
     env.DB.prepare(`
       UPDATE devices
       SET token_sha256=?, label=COALESCE(?, label), updated_at=CURRENT_TIMESTAMP
       WHERE device_id=? AND enabled=1
         AND EXISTS (
           SELECT 1 FROM enrollment_invites
-          WHERE invite_id=? AND used_nonce=? AND used=1
+          WHERE invite_id=? AND used_nonce=? AND used=1 AND used_purpose='transfer'
         )
     `).bind(deviceHash, newLabel, targetId, invite.invite_id, nonce),
   ]);
@@ -301,7 +308,7 @@ async function transferExisting(env: Env, inviteToken: string, targetId: string,
 
 async function enrollNew(env: Env, inviteToken: string, personName: string, requestedLabel: unknown): Promise<Response> {
   const invite = await loadInvite(env, inviteToken);
-  if (!invite) return json({ error: "invite_invalid_or_expired" }, 401);
+  if (!invite || invite.used === 1) return json({ error: "invite_invalid_or_expired" }, 401);
 
   const deviceId = randomToken("ctd_", 12);
   const deviceToken = randomToken("ct_", 32);
@@ -314,7 +321,7 @@ async function enrollNew(env: Env, inviteToken: string, personName: string, requ
   await env.DB.batch([
     env.DB.prepare(`
       UPDATE enrollment_invites
-      SET used=1, used_by_device_id=?, used_at=CURRENT_TIMESTAMP, used_nonce=?
+      SET used=1, used_by_device_id=?, used_at=CURRENT_TIMESTAMP, used_nonce=?, used_purpose='enroll'
       WHERE invite_id=? AND used=0 AND expires_at_ms>?
     `).bind(deviceId, nonce, invite.invite_id, Date.now()),
     env.DB.prepare(`
@@ -322,7 +329,7 @@ async function enrollNew(env: Env, inviteToken: string, personName: string, requ
       SELECT ?,?,?,?,1,0,CURRENT_TIMESTAMP
       WHERE EXISTS (
         SELECT 1 FROM enrollment_invites
-        WHERE invite_id=? AND used_nonce=? AND used=1
+        WHERE invite_id=? AND used_nonce=? AND used=1 AND used_purpose='enroll'
       )
     `).bind(deviceId, personName.trim(), label, deviceHash, invite.invite_id, nonce),
   ]);

@@ -61,9 +61,8 @@ class ActivityTransitionReceiver : BroadcastReceiver() {
         if (!ActivityTransitionResult.hasResult(intent)) return
         val result = ActivityTransitionResult.extractResult(intent) ?: return
         result.transitionEvents.forEach { event ->
-            if (event.transitionType == ActivityTransition.ACTIVITY_TRANSITION_ENTER) {
-                TrackingService.dispatchActivity(context, ActivityRecognitionSupport.map(event))
-            }
+            val entering = event.transitionType == ActivityTransition.ACTIVITY_TRANSITION_ENTER
+            TrackingService.dispatchActivity(context, ActivityRecognitionSupport.map(event), entering)
         }
     }
 }

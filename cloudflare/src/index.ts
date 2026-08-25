@@ -214,50 +214,151 @@ async function createInvite(req: Request, env: Env): Promise<Response> {
   return json({ invite_token: inviteToken, expires_at_ms: expiresAtMs, expires_in_seconds: 600 }, 201);
 }
 
-async function enroll(req: Request, env: Env): Promise<Response> {
-  let body: any;
-  try { body = await parseSmallJson(req); } catch { return json({ error: "invalid_json" }, 400); }
-  if (typeof body?.invite_token !== "string" || !validHumanName(body?.person_name)) {
-    return json({ error: "invalid_payload" }, 400);
+async function loadInvite(env: Env, inviteToken: string) {
+  const hash = await sha256Hex(inviteToken.trim());
+  return env.DB.prepare(`
+    SELECT invite_id, created_by_device_id, expires_at_ms
+    FROM enrollment_invites
+    WHERE token_sha256=? AND used=0 AND expires_at_ms>?
+  `).bind(hash, Date.now()).first<any>();
+}
+
+async function inviteChoices(env: Env, inviteToken: string): Promise<Response> {
+  const invite = await loadInvite(env, inviteToken);
+  if (!invite) return json({ error: "invite_invalid_or_expired" }, 401);
+
+  const devices = await env.DB.prepare(`
+    SELECT d.device_id, d.person_name, d.label, d.is_admin,
+           s.server_time_ms, s.battery_pct, s.activity
+    FROM devices d
+    LEFT JOIN device_state s ON s.device_id=d.device_id
+    WHERE d.enabled=1
+    ORDER BY d.is_admin DESC, d.person_name, d.label
+  `).all<any>();
+
+  return json({
+    action: "inspect",
+    created_by_device_id: invite.created_by_device_id,
+    expires_at_ms: invite.expires_at_ms,
+    devices: devices.results ?? [],
+  });
+}
+
+async function transferExisting(env: Env, inviteToken: string, targetId: string, requestedLabel: unknown): Promise<Response> {
+  if (!validId(targetId)) return json({ error: "invalid_target_device" }, 400);
+  const invite = await loadInvite(env, inviteToken);
+  if (!invite) return json({ error: "invite_invalid_or_expired" }, 401);
+
+  const target = await env.DB.prepare(`
+    SELECT device_id, person_name, label, is_admin FROM devices WHERE device_id=? AND enabled=1
+  `).bind(targetId).first<any>();
+  if (!target) return json({ error: "target_not_found" }, 404);
+
+  const deviceToken = randomToken("ct_", 32);
+  const deviceHash = await sha256Hex(deviceToken);
+  const nonce = randomToken("use_", 12);
+  const newLabel = typeof requestedLabel === "string" && requestedLabel.trim()
+    ? requestedLabel.trim().slice(0, 120)
+    : null;
+
+  await env.DB.batch([
+    env.DB.prepare(`
+      UPDATE enrollment_invites
+      SET used=1, used_by_device_id=?, used_at=CURRENT_TIMESTAMP, used_nonce=?
+      WHERE invite_id=? AND used=0 AND expires_at_ms>?
+    `).bind(targetId, nonce, invite.invite_id, Date.now()),
+    env.DB.prepare(`
+      UPDATE devices
+      SET token_sha256=?, label=COALESCE(?, label), updated_at=CURRENT_TIMESTAMP
+      WHERE device_id=? AND enabled=1
+        AND EXISTS (
+          SELECT 1 FROM enrollment_invites
+          WHERE invite_id=? AND used_nonce=? AND used=1
+        )
+    `).bind(deviceHash, newLabel, targetId, invite.invite_id, nonce),
+  ]);
+
+  const verified = await env.DB.prepare(`
+    SELECT d.device_id, d.person_name, d.label, d.is_admin, d.token_sha256, i.used_nonce
+    FROM devices d JOIN enrollment_invites i ON i.invite_id=?
+    WHERE d.device_id=?
+  `).bind(invite.invite_id, targetId).first<any>();
+
+  if (!verified || verified.used_nonce !== nonce || !constantTimeEqual(verified.token_sha256, deviceHash)) {
+    return json({ error: "invite_already_used" }, 409);
   }
 
-  const hash = await sha256Hex(body.invite_token.trim());
-  const now = Date.now();
-  const invite = await env.DB.prepare(`
-    SELECT invite_id FROM enrollment_invites
-    WHERE token_sha256=? AND used=0 AND expires_at_ms>?
-  `).bind(hash, now).first<any>();
+  return json({
+    action: "transfer",
+    device_id: verified.device_id,
+    person_name: verified.person_name,
+    label: verified.label,
+    is_admin: verified.is_admin === 1,
+    device_token: deviceToken,
+    preserved_identity: true,
+  }, 201);
+}
+
+async function enrollNew(env: Env, inviteToken: string, personName: string, requestedLabel: unknown): Promise<Response> {
+  const invite = await loadInvite(env, inviteToken);
   if (!invite) return json({ error: "invite_invalid_or_expired" }, 401);
 
   const deviceId = randomToken("ctd_", 12);
   const deviceToken = randomToken("ct_", 32);
   const deviceHash = await sha256Hex(deviceToken);
-  const label = typeof body.label === "string" && body.label.trim()
-    ? body.label.trim().slice(0, 120)
+  const nonce = randomToken("use_", 12);
+  const label = typeof requestedLabel === "string" && requestedLabel.trim()
+    ? requestedLabel.trim().slice(0, 120)
     : "Android";
 
-  try {
-    await env.DB.batch([
-      env.DB.prepare(`
-        INSERT INTO devices(device_id,person_name,label,token_sha256,enabled,is_admin,updated_at)
-        VALUES(?,?,?,?,1,0,CURRENT_TIMESTAMP)
-      `).bind(deviceId, body.person_name.trim(), label, deviceHash),
-      env.DB.prepare(`
-        UPDATE enrollment_invites
-        SET used=1, used_by_device_id=?, used_at=CURRENT_TIMESTAMP
-        WHERE invite_id=? AND used=0
-      `).bind(deviceId, invite.invite_id),
-    ]);
-  } catch {
-    return json({ error: "enrollment_failed" }, 409);
+  await env.DB.batch([
+    env.DB.prepare(`
+      UPDATE enrollment_invites
+      SET used=1, used_by_device_id=?, used_at=CURRENT_TIMESTAMP, used_nonce=?
+      WHERE invite_id=? AND used=0 AND expires_at_ms>?
+    `).bind(deviceId, nonce, invite.invite_id, Date.now()),
+    env.DB.prepare(`
+      INSERT INTO devices(device_id,person_name,label,token_sha256,enabled,is_admin,updated_at)
+      SELECT ?,?,?,?,1,0,CURRENT_TIMESTAMP
+      WHERE EXISTS (
+        SELECT 1 FROM enrollment_invites
+        WHERE invite_id=? AND used_nonce=? AND used=1
+      )
+    `).bind(deviceId, personName.trim(), label, deviceHash, invite.invite_id, nonce),
+  ]);
+
+  const verified = await env.DB.prepare(`
+    SELECT device_id, person_name, label, is_admin, token_sha256
+    FROM devices WHERE device_id=?
+  `).bind(deviceId).first<any>();
+
+  if (!verified || !constantTimeEqual(verified.token_sha256, deviceHash)) {
+    return json({ error: "invite_already_used" }, 409);
   }
 
   return json({
-    device_id: deviceId,
-    person_name: body.person_name.trim(),
-    label,
+    action: "enroll",
+    device_id: verified.device_id,
+    person_name: verified.person_name,
+    label: verified.label,
+    is_admin: false,
     device_token: deviceToken,
   }, 201);
+}
+
+async function enroll(req: Request, env: Env): Promise<Response> {
+  let body: any;
+  try { body = await parseSmallJson(req); } catch { return json({ error: "invalid_json" }, 400); }
+  if (typeof body?.invite_token !== "string" || body.invite_token.trim().length < 8) {
+    return json({ error: "invalid_payload" }, 400);
+  }
+
+  const action = typeof body.action === "string" ? body.action : "enroll";
+  if (action === "inspect") return inviteChoices(env, body.invite_token);
+  if (action === "transfer") return transferExisting(env, body.invite_token, body.target_device_id, body.label);
+  if (action !== "enroll") return json({ error: "invalid_action" }, 400);
+  if (!validHumanName(body.person_name)) return json({ error: "invalid_payload" }, 400);
+  return enrollNew(env, body.invite_token, body.person_name, body.label);
 }
 
 async function familyDevices(req: Request, env: Env): Promise<Response> {
@@ -341,7 +442,7 @@ async function router(req: Request, env: Env): Promise<Response> {
   const u = new URL(req.url);
   const path = u.pathname;
 
-  if (req.method === "GET" && path === "/health") return json({ ok: true, service: "casatrack", version: "0.2.0" });
+  if (req.method === "GET" && path === "/health") return json({ ok: true, service: "casatrack", version: "0.3.0" });
   if (req.method === "POST" && path === "/v1/update") return handleUpdate(req, env);
 
   if (req.method === "GET" && path === "/v1/me") return me(req, env);

@@ -54,17 +54,22 @@ object ActivityFusion {
 
     fun fuse(transition: ActivityMode, location: Location?, previous: ActivityMode): Result {
         val speed = location?.takeIf { it.hasSpeed() }?.speed ?: -1f
-        if (transition == ActivityMode.DRIVING) return Result(ActivityMode.DRIVING, 96)
-        if (transition == ActivityMode.CYCLING) return Result(ActivityMode.CYCLING, 92)
-        if (speed >= 11f) return Result(ActivityMode.DRIVING, 90)
+
+        // A real high-speed fix is strong evidence regardless of the transition API.
+        if (speed >= 11f) return Result(ActivityMode.DRIVING, 94)
+
+        // DRIVING is confirmed by TrackingService before it reaches this point.
+        // Once confirmed, do not drop it on a single noisy/zero-speed fix; the
+        // service has a stationary watchdog and EXIT transitions for that.
+        if (transition == ActivityMode.DRIVING) return Result(ActivityMode.DRIVING, 94)
+
+        if (transition == ActivityMode.CYCLING) return Result(ActivityMode.CYCLING, 90)
         if (transition == ActivityMode.RUNNING) return Result(ActivityMode.RUNNING, 90)
         if (transition == ActivityMode.WALKING) return Result(ActivityMode.WALKING, 90)
-        if (transition == ActivityMode.STILL) {
-            if (previous == ActivityMode.DRIVING && speed >= 0f && speed < 2f) return Result(ActivityMode.DRIVING, 72)
-            return Result(ActivityMode.STILL, 88)
-        }
-        if (speed >= 3f) return Result(ActivityMode.CYCLING, 65)
-        if (speed >= 0.8f) return Result(ActivityMode.WALKING, 60)
+        if (transition == ActivityMode.STILL) return Result(ActivityMode.STILL, 90)
+
+        if (speed >= 3f) return Result(ActivityMode.CYCLING, 68)
+        if (speed >= 0.8f) return Result(ActivityMode.WALKING, 62)
         return Result(previous.takeIf { it != ActivityMode.UNKNOWN } ?: ActivityMode.UNKNOWN, 50)
     }
 }

@@ -131,7 +131,10 @@ class TrackingService : Service() {
 
         mode = ActivityMode.fromWire(prefs.activity)
         if (mode == ActivityMode.DRIVING && System.currentTimeMillis() - prefs.activityChangedAt > STALE_DRIVING_MS) {
-            setModeDirect(ActivityMode.UNKNOWN, 50)
+            mode = ActivityMode.UNKNOWN
+            modeConfidence = 50
+            prefs.activity = mode.wire
+            prefs.activityChangedAt = System.currentTimeMillis()
         }
 
         lastLocation = if (prefs.lastLat.isFinite() && prefs.lastLon.isFinite()) {

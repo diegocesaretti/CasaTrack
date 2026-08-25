@@ -37,6 +37,14 @@ object FamilyClient {
         }
     }
 
+    private fun enrollmentCall(apiUrl: String, body: JSONObject): JSONObject {
+        val request = Request.Builder()
+            .url("${apiUrl.trim().trimEnd('/')}/v1/enroll")
+            .post(body.toString().toRequestBody(jsonType))
+            .build()
+        return execute(request)
+    }
+
     fun me(prefs: AppPrefs): JSONObject = execute(
         authenticatedBuilder(prefs, "/v1/me").get().build()
     )
@@ -61,16 +69,28 @@ object FamilyClient {
         authenticatedBuilder(prefs, "/v1/devices/$deviceId").delete().build()
     )
 
-    fun enroll(apiUrl: String, inviteToken: String, personName: String, label: String): JSONObject {
-        val body = JSONObject()
+    fun inspectInvite(apiUrl: String, inviteToken: String): JSONObject = enrollmentCall(
+        apiUrl,
+        JSONObject()
+            .put("action", "inspect")
+            .put("invite_token", inviteToken)
+    )
+
+    fun transferExisting(apiUrl: String, inviteToken: String, targetDeviceId: String, label: String): JSONObject = enrollmentCall(
+        apiUrl,
+        JSONObject()
+            .put("action", "transfer")
+            .put("invite_token", inviteToken)
+            .put("target_device_id", targetDeviceId)
+            .put("label", label)
+    )
+
+    fun enroll(apiUrl: String, inviteToken: String, personName: String, label: String): JSONObject = enrollmentCall(
+        apiUrl,
+        JSONObject()
+            .put("action", "enroll")
             .put("invite_token", inviteToken)
             .put("person_name", personName)
             .put("label", label)
-            .toString()
-        val request = Request.Builder()
-            .url("${apiUrl.trim().trimEnd('/')}/v1/enroll")
-            .post(body.toRequestBody(jsonType))
-            .build()
-        return execute(request)
-    }
+    )
 }
